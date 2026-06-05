@@ -1,0 +1,202 @@
+import json
+
+# Your JSON cookie data pasted here
+json_cookies = [
+    {
+        "domain": ".google.com",
+        "expirationDate": 1814859525.266628,
+        "hostOnly": False,
+        "httpOnly": False,
+        "name": "SAPISID",
+        "path": "/",
+        "secure": True,
+        "value": "HcusySQVa-8ucW7x/AKRubKXoDNeM4zShQ"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1814859525.266761,
+        "hostOnly": False,
+        "httpOnly": False,
+        "name": "__Secure-3PAPISID",
+        "path": "/",
+        "secure": True,
+        "value": "HcusySQVa-8ucW7x/AKRubKXoDNeM4zShQ"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1790690752.954094,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "AEC",
+        "path": "/",
+        "secure": True,
+        "value": "AaJma5tCiclfkxDtLPV4zwnR6BIYwLlcnqbr2YppJX5Pv5mltZRqz1A6iQ"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1796286385.370658,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "NID",
+        "path": "/",
+        "secure": True,
+        "value": "532=kLmubEGDbPNSaW8Rxehoe0wdByu31K5V_wRUfWUARF1fjOOnRY1xZxZihm96g7lfuJhWFZcYNAhf3Q_cySf9GYUdswa6cwSsgI_hW65my8RwGUxCzSPsCWDqoIapOo8H-zw3p4V33R9Sk8JSQD8B95eZNHkjatCA-WIVWuKRB593ddfWYSxh1d1PfofRDxWc7dZUvBZkepIBvcOhkAhN4LSrqqTpQ7NMV__OSiEE3dvs7xUg5nSL7fHd8YVhVVraJDSDj6PZ_eC5TLwAKaB6ESRv5qxC4vUeU0OTdsYgxLrXy-vKpKYy4dsWbsv0B9ozqu7ZrArTjngqPShSt7hVVaSbiRkOId7x5Jg8Ipo6wvHiosUYtYgoKijFKWJaHCQswwRP4iCBqGTo-x6scm5lLEY4VSCD2wv5t2rF8-Zk8WOrzlAaueB0fKT2AV2MJZSb03EspFRRAsD8_lN9RT9eeXYXGm0dSfiUbwWwyP03wwFXcgcmfvPp5W4tUl_2mNgZnPewitNNB3BW66-JGNVcgUzUjUFdDjhielNSR0Lt1lY0DoomLLfgqcfiOTrib7H9Ph0btyaqAkkoehhS1_QrfQVgvn8a1viNVAipFdEIFMWWCGqT0_kYjEfZ5ewxYPRbZdiV6Ll-Feu-98ewzJE8drqanJFtKxGZMpi7cRxOVLx67qPPQXGcE-9_Ha92Y8aB4W5HDuSIUgj51TINr2ICUGhzbMrkx_wW7T4RfCM0hqF-HDuR6EE9GqyzyNKm19CznBpKMXc1ioFi3zmaTh4IORl5cXbovE1YTnY8-zufcFJQTXyGeJGaJk5eX9AhsEjAfshEa3fb-volJ5Th85AchNQrWyGzsSIKPBosoAK_5nHrWI1L2ud5moUBI9IE6bNToLwJzoE76yYSTn9WZiVKr1Knhc71tQWJtQVnZWj1AISLY9OlkCd6nduCotDpwmAcnzoGb8vaTez74z2g4rSbSU24lPxKhNKhfwP4i6-fX-SqhojcAopYD8aiU_LyINO-ao94PJJqIKQ4F3vIQ2rJ0J1W9oW5o9FlYyi4_GRy_9136WzH4oBMK0ww1WsNMF6p92wfM0GzIPAsYWtb359qmAgxPnNHHrXnZo1Z1z1QdvLBxO3CuWlFFeoZkM2zLlzcFzPNplVywEQytM6wp9b5turlRmRPU7ZNIJiCrMS1EuUvfcbqoWsZcBvJfJ6wIVDzHYSrPIOvvPOv4Nmx6oXuh7iQkKn2YnUs04Kj-63Hyo1LJwU0-WapN1D_22tE8iDXBP-KRMJns_DEm_NV72KWyI6KEN9SMKftCpvsbQNuBDciwiMfvEaRl9NW-smD8sZNjsOIDPsr2t2O1PJD4n6gh7RMxpWEcxrBd2iGhtR2zQBrB5TwBRUES6oM8pbSQLqIE0mvUhTqYVzysoil0TyNVzrPNTNhd9UeZ5xNfQ-mZ98lIq2Pollh0zatGApMQbzCclc0dASpANT-8OPw546pkjpA-mCHBf90KBOp1qwYq2p_yJxq93vHKvnTLN_vUmyMvmKc_Sb6BrhbcFULHzyWG_bmZO-IHkVEtSb_K69LqyAv63HVMKDUZXYOWvvzN0W6-Q-saqwigeddpCsUhz9eQ44jcuMpFS12aygvBMkvZv7tg9VmSDujYElshmN35vVweTNY9YXBO0C8CJ8CMO0oVFwD46EDgwX0A-TrL6qq7kZ7PbY62Jf5IiByAXYEQTIry26RwGtn4smhdMm2dTab7QbZwXxgqX414BKLGX57_HC_RpnkUbcR0W1yWPpztQ_UMvn22ylb19xXRXq3525HITn5FYxWeDChxKRrqt0aH61paw1OIxZNfELPc9jRUNGQCRY9"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1812097337.841755,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "__Secure-1PSIDTS",
+        "path": "/",
+        "secure": True,
+        "value": "sidts-CjEBhkeRdzZSaDD8dmFBz_OzHby4dFdO16dEcBGU8A5YfJu_wdJLxgnAFfyq8X20iuCpEAA"
+    },
+    {
+        "domain": "drive.google.com",
+        "expirationDate": 1781424284.597678,
+        "hostOnly": True,
+        "httpOnly": True,
+        "name": "COMPASS",
+        "path": "/",
+        "secure": True,
+        "value": "appsfrontendserver=CgAQlf6E0QYaewAJa4lXUeejDwp-VSjXM2HlzA7D0kenVOxW4HknJxfFVweRje_JHVO90shnicvP1cuRyPnWxk0JRJAVnua3DV4aUnLzxPpCISb9BIM16O6rkR2r4r2kj6XYwimeUFUII7-PjEuUoImLw_dNM8c-GGdJ9BK3JlvZfOu3FCABMAE:photos-fife=CgAQrP-E0QYaWAAJa4lXFu2rYUEFru3e3uSEaMCm2VJuiCqeBKncGjl5LF8P4D1sMvNWjMH23aUiRUZLZxhoEkw6Zcv3v1Htrge5wWK6pQBMkpkq42FXsUKlfCbOeQtkvs8wAQ"
+    },
+    {
+        "domain": "drive.google.com",
+        "expirationDate": 1815120130.193358,
+        "hostOnly": True,
+        "httpOnly": True,
+        "name": "__Secure-OSID",
+        "path": "/",
+        "secure": True,
+        "value": "g.a000-gijjc-wkcq6CWiVxbRhrzruIh1QmHNlPVZczI0EJFxsFwSRuseSw25YyUMG_LasR7cACAACgYKARMSARQSFQHGX2MiktCZhx_tMEb1_PchEPj8YRoVAUF8yKrij0KeI3Dx2GJJeeefNhzL0076"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1814859525.266697,
+        "hostOnly": False,
+        "httpOnly": False,
+        "name": "__Secure-1PAPISID",
+        "path": "/",
+        "secure": True,
+        "value": "HcusySQVa-8ucW7x/AKRubKXoDNeM4zShQ"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1814859525.267479,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "__Secure-3PSID",
+        "path": "/",
+        "secure": True,
+        "value": "g.a000-gijjTN-FaNPDw6lWcvR4t5GN_y1xWaFcOv_Z8vE-DsOoPajD6qOOIXEfnczZWpoLd7IoQACgYKAT0SARQSFQHGX2MimjuVE3dwTpncJAmst7zI7xoVAUF8yKpnOqtgbHS7oQpLUbey9UuL0076"
+    },
+    {
+        "domain": "drive.google.com",
+        "expirationDate": 1783153186,
+        "hostOnly": True,
+        "httpOnly": False,
+        "name": "OTZ",
+        "path": "/",
+        "secure": True,
+        "value": "8637620_34_34__34_"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1814859525.267403,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "__Secure-1PSID",
+        "path": "/",
+        "secure": True,
+        "value": "g.a000-gijjTN-FaNPDw6lWcvR4t5GN_y1xWaFcOv_Z8vE-DsOoPajFj-0xQNNFPXUTxcArO97NAACgYKAVESARQSFQHGX2Mix2ScrvU4AccbpxhckYUX9RoVAUF8yKo3X6QfbKwbNLlvD5w9vwRs0076"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1812097749.566354,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "__Secure-1PSIDCC",
+        "path": "/",
+        "secure": True,
+        "value": "AKEyXzUMcrXaQc6PeznkMFvd5irrSRyYzUicpvNdSsJlapVcV3BjKbOzazLYKIyuSbHgzUVWqtN_"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1812097749.566529,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "__Secure-3PSIDCC",
+        "path": "/",
+        "secure": True,
+        "value": "AKEyXzXesBUS7ejiHdeDJW1r0z4zPQNWnJDbs-wujXqf8KvCHLXGA0lDK0QgjBvU_7bB1l02X8s"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1812097337.842094,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "__Secure-3PSIDTS",
+        "path": "/",
+        "secure": True,
+        "value": "sidts-CjEBhkeRdzZSaDD8dmFBz_OzHby4dFdO16dEcBGU8A5YfJu_wdJLxgnAFfyq8X20iuCpEAA"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1781074001.538721,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "__Secure-BUCKET",
+        "path": "/",
+        "secure": True,
+        "value": "CAQ"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1780561987.818507,
+        "hostOnly": False,
+        "httpOnly": False,
+        "name": "__Secure-STRP",
+        "path": "/",
+        "secure": True,
+        "value": "ANmZwa3qWNpX9C4k9O_rqvpTFNmDhm7h9jkCyj3L50VnHEfB1gcvCvlioGNzXLyKVXGBlmZwwTmpl47qMBhkSCtkDuOe78wuHL5O"
+    },
+    {
+        "domain": "drive.google.com",
+        "expirationDate": 1815120130.193177,
+        "hostOnly": True,
+        "httpOnly": True,
+        "name": "OSID",
+        "path": "/",
+        "secure": True,
+        "value": "g.a000-gijjc-wkcq6CWiVxbRhrzruIh1QmHNlPVZczI0EJFxsFwSR_qLWkFWPkJv9xLWLo6ebrQACgYKAVISARQSFQHGX2MiFljixFb9otIcvHw3rHdPihoVAUF8yKrAeHTg7G7zKkwXqs5qwSj90076"
+    },
+    {
+        "domain": ".google.com",
+        "expirationDate": 1814859525.266478,
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": "SSID",
+        "path": "/",
+        "secure": True,
+        "value": "AGfKOCgMUC3VHwtvq"
+    }
+]
+
+with open("cookies.txt", "w", encoding="utf-8") as f:
+    f.write("# Netscape HTTP Cookie File\n")
+    f.write("# This file was generated automatically from JSON format\n\n")
+    for c in json_cookies:
+        domain = c.get("domain", "")
+        include_subdomains = "TRUE" if domain.startswith(".") else "FALSE"
+        path = c.get("path", "/")
+        secure = "TRUE" if c.get("secure", False) else "FALSE"
+        # Use fallback if expiration key is missing
+        expires = int(c.get("expirationDate", 0))
+        name = c.get("name", "")
+        value = c.get("value", "")
+        
+        f.write(f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
+
+print("[+] cookies.txt successfully mapped and created!")

@@ -179,7 +179,8 @@ def fetch_spot_history(kite, token, from_date, to_date):
     """Fetch daily close prices for the underlying index."""
     data = kite.historical_data(token, from_date, to_date, "day")
     df   = pd.DataFrame(data)
-    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    # strip timezone (+05:30) and normalize to date only
+    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.normalize()
     return df.set_index("date")["close"]
 
 
@@ -202,7 +203,8 @@ def fetch_option_history(kite, chain, spot, from_date, to_date, strike_step=100)
                 instrument_token=int(row["instrument_token"]),
                 from_date=from_date,
                 to_date=to_date,
-                interval="day"
+                interval="day",
+                oi=True           # ← fetch Open Interest
             )
             for h in hist:
                 h["strike"] = row["strike"]
@@ -215,7 +217,8 @@ def fetch_option_history(kite, chain, spot, from_date, to_date, strike_step=100)
     print()
     df = pd.DataFrame(records)
     if not df.empty:
-        df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+        # strip timezone (+05:30) and normalize to date only
+        df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.normalize()
     return df
 
 
@@ -247,14 +250,14 @@ def compute_iv(market_price, S, K, T, r, opt_type):
 
 
 def compute_max_pain(df_day):
-    # handle both 'oi' and 'open_interest' column names
-    oi_col = "oi" if "oi" in df_day.columns else "open_interest"
-    if oi_col not in df_day.columns:
-        return None
-
+    """
+    Max Pain: strike where total payout to option buyers is minimum
+    (i.e. maximum loss to buyers = maximum pain).
+    Market tends to gravitate here near expiry.
+    """
     strikes = sorted(df_day["strike"].unique())
-    ce = df_day[df_day["type"] == "CE"].set_index("strike")[oi_col].to_dict()
-    pe = df_day[df_day["type"] == "PE"].set_index("strike")[oi_col].to_dict()
+    ce = df_day[df_day["type"] == "CE"].set_index("strike")["oi"].to_dict()
+    pe = df_day[df_day["type"] == "PE"].set_index("strike")["oi"].to_dict()
 
     min_payout      = float("inf")
     max_pain_strike = None
@@ -273,16 +276,15 @@ def compute_max_pain(df_day):
 
     return max_pain_strike
 
-def compute_pcr(df_day):
-    oi_col  = "oi" if "oi" in df_day.columns else "open_interest"
-    vol_col = "volume" if "volume" in df_day.columns else "vol"
 
+def compute_pcr(df_day):
+    """Put-Call Ratio by OI and Volume."""
     ce = df_day[df_day["type"] == "CE"]
     pe = df_day[df_day["type"] == "PE"]
-    ce_oi  = int(ce[oi_col].sum())  if oi_col  in ce.columns else 0
-    pe_oi  = int(pe[oi_col].sum())  if oi_col  in pe.columns else 0
-    ce_vol = int(ce[vol_col].sum()) if vol_col in ce.columns else 0
-    pe_vol = int(pe[vol_col].sum()) if vol_col in pe.columns else 0
+    ce_oi  = int(ce["oi"].sum())
+    pe_oi  = int(pe["oi"].sum())
+    ce_vol = int(ce["volume"].sum())
+    pe_vol = int(pe["volume"].sum())
     pcr_oi  = round(pe_oi  / ce_oi,  4) if ce_oi  > 0 else None
     pcr_vol = round(pe_vol / ce_vol, 4) if ce_vol > 0 else None
     return pcr_oi, pcr_vol, ce_oi, pe_oi, ce_vol, pe_vol
@@ -318,7 +320,7 @@ def save_iv_data(conn, df, instrument, expiry, spot_series):
         S  = float(spot_series.get(row_date, 0))
         iv = compute_iv(r["close"], S, r["strike"], T, RISK_FREE, r["type"])
         rows.append((
-            instrument, str(expiry_naive.date()), str(row_date.date()),
+            instrument, str(expiry.date()), str(r["date"].date()),
             r["strike"], r["type"], iv, S
         ))
     conn.executemany("""
