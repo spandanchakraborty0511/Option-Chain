@@ -35,7 +35,7 @@ from kiteconnect import KiteConnect
 # ──────────────────────────────────────────────
 API_KEY      = "ujqgohskrn96s6n3"
 API_SECRET   = "4chfbivdma7z6n59zyuxgzofu9tvq9zb"
-ACCESS_TOKEN = "evfbR8JJ5syW15Mj4bFInS8x3Ta2LAfO"   # paste today's access token here to skip browser login
+ACCESS_TOKEN = "vwWaoAKCRZ6KZ4YRlTTnLW9Nupp6IOl4"   # paste today's access token here to skip browser login
                     # leave empty "" to do the full browser login
 
 INSTRUMENTS  = ["NIFTY", "BANKNIFTY"]   # add more e.g. "RELIANCE", "HDFCBANK"
