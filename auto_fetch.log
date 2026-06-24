@@ -517,3 +517,32 @@ RuntimeError: Missing credentials. Set KITE_API_KEY, KITE_API_SECRET, ZERODHA_US
 2026-06-23 19:10:27  INFO       Saved 41 rows → pcr
 2026-06-23 19:10:27  INFO       ✅  BANKNIFTY done!
 2026-06-23 19:10:27  INFO     Fetch complete.
+2026-06-24 11:36:42  INFO     Database ready: options_data.db
+2026-06-24 11:36:42  INFO     =======================================================
+2026-06-24 11:36:42  INFO     Fetch starting at 2026-06-24 11:36:42
+2026-06-24 11:36:42  INFO     =======================================================
+2026-06-24 11:36:42  INFO     Opening Kite login page...
+2026-06-24 11:36:42  INFO     ====== WebDriver manager ======
+2026-06-24 11:36:45  INFO     Get LATEST chromedriver version for google-chrome
+2026-06-24 11:36:46  INFO     Get LATEST chromedriver version for google-chrome
+2026-06-24 11:36:46  INFO     WebDriver version 149.0.7827.155 selected
+2026-06-24 11:36:46  INFO     Modern chrome version https://storage.googleapis.com/chrome-for-testing-public/149.0.7827.155/win64/chromedriver-win64.zip
+2026-06-24 11:36:46  INFO     About to download new driver from https://storage.googleapis.com/chrome-for-testing-public/149.0.7827.155/win64/chromedriver-win64.zip
+2026-06-24 11:36:47  INFO     Driver downloading response is 200
+2026-06-24 11:36:50  INFO     Driver has been saved in cache [C:\Users\User\.wdm\drivers\chromedriver\win64\149.0.7827.155]
+2026-06-24 11:36:53  INFO       Pre-filled User ID: HRP552
+2026-06-24 11:36:53  INFO       >>> Please enter your PASSWORD and TOTP in the browser window now. <<<
+2026-06-24 11:41:56  ERROR    Fetch FAILED: Message: 
+Traceback (most recent call last):
+  File "d:\iisc\project\auto_fetch.py", line 423, in daily_job
+    kite = load_kite()
+           ^^^^^^^^^^^
+  File "d:\iisc\project\auto_fetch.py", line 201, in load_kite
+    return auto_login()
+           ^^^^^^^^^^^^
+  File "d:\iisc\project\auto_fetch.py", line 155, in auto_login
+    wait.until(lambda d: "request_token" in d.current_url)
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\selenium\webdriver\support\wait.py", line 121, in until
+    raise TimeoutException(message, screen, stacktrace)
+selenium.common.exceptions.TimeoutException: Message: 
+

@@ -61,7 +61,7 @@ def _run_script(job_id, script_name, extra_args=None):
 
 @app.route("/")
 def home():
-    return send_from_directory(BASE_DIR, "index.html")
+    return send_from_directory(BASE_DIR, "index1.html")
 
 
 @app.route("/fetch", methods=["POST"])
@@ -101,7 +101,7 @@ def dashboard():
             "No dashboard yet — click 'View Dashboard' from the home page first.</p>",
             mimetype="text/html"
         )
-    return send_from_directory(BASE_DIR, "options_patterns.html")
+    return send_from_directory(BASE_DIR, "index1.html")
 
 
 if __name__ == "__main__":

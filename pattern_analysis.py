@@ -24,7 +24,7 @@ from scipy.stats import norm
 import math
 
 DB_PATH = r"D:\iisc\project\options_data.db"
-OUTPUT_HTML = "options_patterns.html"
+OUTPUT_HTML = "index.html"
 
 # ─────────────────────────────────────────────
 # BLACK-SCHOLES IV (Newton-Raphson)

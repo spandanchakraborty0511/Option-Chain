@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Options Pipeline — Control Panel</title>
+<style>
+  :root {
+    --bg:        #0d1117;
+    --panel:     #11161d;
+    --border:    #1f2630;
+    --text:      #c9d1d9;
+    --muted:     #6e7681;
+    --green:     #3fb950;
+    --green-dim: #2ea043;
+    --red:       #f85149;
+    --amber:     #d29922;
+    --accent:    #58a6ff;
+    --mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .console {
+    width: 100%;
+    max-width: 760px;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .topbar .ticker {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  .topbar .ticker .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 8px;
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 4px;
+    font-family: var(--mono);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  @media (max-width: 600px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transition: border-color 0.15s;
+  }
+
+  .card:hover {
+    border-color: #2a3340;
+  }
+
+  .card .label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .card .icon {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+
+  .card h2 {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .card p {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  button.action {
+    background: transparent;
+    border: 1px solid var(--green-dim);
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 7px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  button.action:hover:not(:disabled) {
+    background: rgba(63, 185, 80, 0.08);
+  }
+
+  button.action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  button.action.secondary {
+    border-color: #30363d;
+    color: var(--accent);
+  }
+
+  button.action.secondary:hover:not(:disabled) {
+    background: rgba(88, 166, 255, 0.08);
+  }
+
+  button.action .arrow {
+    opacity: 0.6;
+  }
+
+  .log-panel {
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: #8b949e;
+    height: 220px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: none;
+  }
+
+  .log-panel.visible { display: block; }
+
+  .log-panel .line { opacity: 0; animation: fadein 0.2s forwards; }
+  @keyframes fadein { to { opacity: 1; } }
+
+  .log-panel .ok    { color: var(--green); }
+  .log-panel .err   { color: var(--red); }
+  .log-panel .warn  { color: var(--amber); }
+
+  .status-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    min-height: 18px;
+  }
+
+  .status-strip .spinner {
+    width: 11px;
+    height: 11px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+
+  .status-strip.loading .spinner { display: inline-block; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .footer-hint {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 22px;
+  }
+
+  .footer-hint a { color: var(--accent); text-decoration: none; }
+  .footer-hint a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="console">
+
+  <div class="topbar">
+    <div>
+      <h1>Options Pipeline</h1>
+      <div class="sub">NIFTY · BANKNIFTY — NSE Bhavcopy + Kite</div>
+    </div>
+    <div class="ticker"><span class="dot"></span>local · idle</div>
+  </div>
+
+  <div class="grid">
+
+    <div class="card">
+      <div class="label-row">
+        <h2>Fetch Latest Data</h2>
+        <span class="icon">auto_fetch.py</span>
+      </div>
+      <p>Logs into Kite (you'll type your password + TOTP in the browser window that opens) and pulls the most recent options chain into the database.</p>
+      <button class="action" id="btnFetch">
+        <span>Run fetch</span>
+        <span class="arrow">→</span>
+      </button>
+      <div class="status-strip" id="fetchStatus"><span class="spinner"></span><span class="statusText"></span></div>
+    </div>
+
+    <div class="card">
+      <div class="label-row">
+        <h2>View Dashboard</h2>
+        <span class="icon">pattern_analysis.py</span>
+      </div>
+      <p>Recomputes PCR, Max Pain, IV, and OI buildup from everything currently in the database, then opens the dashboard.</p>
+      <button class="action secondary" id="btnAnalyze">
+        <span>Build &amp; open dashboard</span>
+        <span class="arrow">→</span>
+      </button>
+      <div class="status-strip" id="analyzeStatus"><span class="spinner"></span><span class="statusText"></span></div>
+    </div>
+
+  </div>
+
+  <div class="log-panel" id="logPanel"></div>
+
+  <div class="footer-hint">
+    Dashboard also available directly at <a href="/dashboard" target="_blank">/dashboard</a> once built.
+  </div>
+
+</div>
+
+<script>
+const logPanel = document.getElementById('logPanel');
+const btnFetch = document.getElementById('btnFetch');
+const btnAnalyze = document.getElementById('btnAnalyze');
+const fetchStatus = document.getElementById('fetchStatus');
+const analyzeStatus = document.getElementById('analyzeStatus');
+
+function setStatus(el, loading, text) {
+  el.classList.toggle('loading', loading);
+  el.querySelector('.statusText').textContent = text;
+}
+
+function appendLog(line) {
+  const div = document.createElement('div');
+  div.className = 'line';
+  if (/error|traceback|failed/i.test(line)) div.classList.add('err');
+  else if (/warn/i.test(line)) div.classList.add('warn');
+  else if (/saved|done|success|complete/i.test(line)) div.classList.add('ok');
+  div.textContent = line;
+  logPanel.appendChild(div);
+  logPanel.scrollTop = logPanel.scrollHeight;
+}
+
+async function runJob(endpoint, statusEl, runningLabel, doneLabel, onDone) {
+  logPanel.classList.add('visible');
+  logPanel.innerHTML = '';
+  setStatus(statusEl, true, runningLabel);
+  btnFetch.disabled = true;
+  btnAnalyze.disabled = true;
+
+  const res = await fetch(endpoint, { method: 'POST' });
+  const { job_id } = await res.json();
+
+  let seen = 0;
+  const poll = setInterval(async () => {
+    const r = await fetch(`/job/${job_id}`);
+    const data = await r.json();
+
+    for (let i = seen; i < data.log.length; i++) appendLog(data.log[i]);
+    seen = data.log.length;
+
+    if (data.status === 'done' || data.status === 'error') {
+      clearInterval(poll);
+      btnFetch.disabled = false;
+      btnAnalyze.disabled = false;
+      if (data.status === 'done') {
+        setStatus(statusEl, false, doneLabel);
+        if (onDone) onDone();
+      } else {
+        setStatus(statusEl, false, 'Failed — see log below');
+      }
+    }
+  }, 800);
+}
+
+btnFetch.addEventListener('click', () => {
+  runJob('/fetch', fetchStatus, 'Fetching…', 'Done ✓');
+});
+
+btnAnalyze.addEventListener('click', () => {
+  runJob('/analyze', analyzeStatus, 'Building dashboard…', 'Done — opening…', () => {
+    window.open('/dashboard', '_blank');
+  });
+});
+</script>
+
+</body>
+</html>
