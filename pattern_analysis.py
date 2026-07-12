@@ -2,10 +2,12 @@
 pattern_analysis.py
 ──────────────────────────────────────────────────────────────────────────────
 Unified Options Chain Pattern Analysis Dashboard.
-Builds ONE index.html with tabs for NIFTY, BANKNIFTY, and SPY.
+Builds ONE index.html with tabs for NIFTY, BANKNIFTY, SPY, and the
+pre-2020 historical price tabs (NIFTY / BANKNIFTY, 2012-2019).
 
 NIFTY/BANKNIFTY  <- nse_options + options_chain (Kite)  in options_data.db
 SPY              <- sp500_options                        in sp500_data.db
+Pre-2020 history <- pre2020_price_history                in options_data.db
 """
 
 import sys, io, sqlite3, json, webbrowser, os, math
@@ -25,6 +27,7 @@ OUT_FILE     = os.path.join(BASE_DIR, "index.html")
 LOOKBACK     = 120
 RISK_FREE    = 0.07   # for India IV calc
 RISK_FREE_US = 0.045  # for SPY (unused, SPY IV pre-computed)
+PRE2020_LOOKBACK = 500  # pre-2020 history is daily bars, so allow a longer window
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -108,6 +111,80 @@ def load_india_data(instrument: str) -> pd.DataFrame:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# SECTION 1B — PRE-2020 HISTORICAL PRICE DATA LOADING (NIFTY / BANKNIFTY)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def load_pre2020_data(symbol: str) -> pd.DataFrame:
+    """Loads raw intraday SPOT + FUTURES_1 rows for `symbol` from
+    pre2020_price_history and aggregates them into daily EOD bars.
+
+    Returns a df with columns: date, spot_close, futures_close
+    (one row per calendar date; either column may be NaN if that
+    instrument type has no data for that date).
+    """
+    if not os.path.exists(INDIA_DB):
+        return pd.DataFrame()
+
+    conn = sqlite3.connect(INDIA_DB)
+    try:
+        cols = [c[1] for c in conn.execute(
+            "PRAGMA table_info(pre2020_price_history)").fetchall()]
+    except Exception:
+        conn.close()
+        return pd.DataFrame()
+
+    if not cols:
+        conn.close()
+        return pd.DataFrame()
+
+    query = """
+        SELECT date, time, instrument_type, open, high, low, close, volume
+        FROM pre2020_price_history
+        WHERE symbol = ? AND instrument_type IN ('SPOT', 'FUTURES_1')
+    """
+    raw = pd.read_sql(query, conn, params=(symbol,))
+    conn.close()
+
+    if raw.empty:
+        return raw
+
+    # date column is stored as e.g. 20150101 (int/str); time as "HH:MM".
+    # Sort so groupby "first"/"last" pick the correct open/close.
+    raw = raw.sort_values(["instrument_type", "date", "time"])
+
+    daily = (
+        raw.groupby(["instrument_type", "date"])
+           .agg(open=("open", "first"),
+                high=("high", "max"),
+                low=("low", "min"),
+                close=("close", "last"),
+                volume=("volume", "sum"))
+           .reset_index()
+    )
+    daily["date"] = pd.to_datetime(daily["date"], format="%Y%m%d", errors="coerce")
+    daily = daily.dropna(subset=["date"])
+
+    spot = (daily[daily["instrument_type"] == "SPOT"][["date", "close"]]
+            .rename(columns={"close": "spot_close"}))
+    fut = (daily[daily["instrument_type"] == "FUTURES_1"][["date", "close"]]
+           .rename(columns={"close": "futures_close"}))
+
+    merged = pd.merge(spot, fut, on="date", how="outer").sort_values("date").reset_index(drop=True)
+    return merged
+
+
+def compute_pre2020_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Adds basis (futures - spot) and 20-day annualized realized vol (%)."""
+    df = df.sort_values("date").reset_index(drop=True)
+    df["basis"] = df["futures_close"] - df["spot_close"]
+
+    spot = df["spot_close"]
+    log_ret = np.log(spot / spot.shift(1))
+    df["realized_vol_20d"] = log_ret.rolling(20).std() * np.sqrt(252) * 100
+    return df
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # SECTION 2 — SPY DATA LOADING
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -124,7 +201,7 @@ def load_spy_data() -> pd.DataFrame:
         return pd.DataFrame()
 
     # Only need the last 2 years of files to cover LOOKBACK trading days
-    files = files[-2:]
+    files = files[-1:]
 
     frames = []
     for fname in files:
@@ -443,8 +520,64 @@ def build_symbol_payload(symbol: str, df: pd.DataFrame, market: str) -> dict:
     }
 
 
+def build_pre2020_payload(symbol: str, df: pd.DataFrame) -> dict:
+    """Builds the payload for a pre-2020 historical price tab.
+    Shows spot vs futures price, basis, and 20-day realized volatility
+    instead of the options-chain metrics used elsewhere."""
+
+    empty_shape = {
+        "symbol": symbol, "market": "pre2020", "has_data": False,
+        "spot": [], "futures": [], "basis": [], "realized_vol": [],
+        "kpi": {"spot": "N/A", "basis": "N/A", "vol": "N/A"},
+        "date_range": "N/A", "row_count": 0
+    }
+
+    if df.empty or df["spot_close"].dropna().empty:
+        return empty_shape
+
+    df = compute_pre2020_metrics(df)
+
+    all_dates = sorted(df["date"].unique())
+    recent_dates = set(all_dates[-PRE2020_LOOKBACK:])
+    view = df[df["date"].isin(recent_dates)]
+
+    def series(col):
+        sub = view.dropna(subset=[col])
+        return [{"x": str(r["date"])[:10], "y": safe_round(r[col])} for _, r in sub.iterrows()]
+
+    spot_data  = series("spot_close")
+    fut_data   = series("futures_close")
+    basis_data = series("basis")
+    vol_data   = series("realized_vol_20d")
+
+    spot_valid = df["spot_close"].dropna()
+    basis_valid = df["basis"].dropna()
+    vol_valid = df["realized_vol_20d"].dropna()
+
+    latest_spot  = safe_round(spot_valid.iloc[-1]) if not spot_valid.empty else None
+    latest_basis = safe_round(basis_valid.iloc[-1]) if not basis_valid.empty else None
+    latest_vol   = safe_round(vol_valid.iloc[-1]) if not vol_valid.empty else None
+
+    valid_dates = df["date"].dropna()
+    date_range = (f"{str(valid_dates.min())[:10]} \u2192 {str(valid_dates.max())[:10]}"
+                  if not valid_dates.empty else "N/A")
+
+    return {
+        "symbol": symbol, "market": "pre2020", "has_data": True,
+        "spot": spot_data, "futures": fut_data, "basis": basis_data,
+        "realized_vol": vol_data,
+        "kpi": {
+            "spot": latest_spot if latest_spot is not None else "N/A",
+            "basis": latest_basis if latest_basis is not None else "N/A",
+            "vol": latest_vol if latest_vol is not None else "N/A"
+        },
+        "date_range": date_range,
+        "row_count": len(df)
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════
-# SECTION 5 — COMBINED HTML BUILDER (3 TABS: NIFTY / BANKNIFTY / SPY)
+# SECTION 5 — COMBINED HTML BUILDER
 # ═══════════════════════════════════════════════════════════════════════════
 
 CURRENCY = {"NIFTY": "\u20b9", "BANKNIFTY": "\u20b9", "SPY": "$"}
@@ -486,7 +619,7 @@ def build_combined_html(payloads: list) -> str:
   header .meta {{ font-size: 0.78rem; color: var(--muted); text-align: right; }}
   header .subtitle {{ font-size: 0.8rem; color: var(--muted); margin-top: 4px; }}
 
-  .tabs {{ display: flex; gap: 4px; }}
+  .tabs {{ display: flex; gap: 4px; flex-wrap: wrap; }}
   .tab {{
     background: transparent; border: none; color: var(--muted);
     padding: 10px 18px; font-size: 0.85rem; font-weight: 600;
@@ -502,6 +635,7 @@ def build_combined_html(payloads: list) -> str:
     gap: 16px;
     padding: 24px 32px;
   }}
+  .kpis.kpis-3 {{ grid-template-columns: repeat(3, 1fr); }}
   .kpi {{
     background: var(--surface);
     border: 1px solid var(--border);
@@ -527,6 +661,7 @@ def build_combined_html(payloads: list) -> str:
     border-radius: 10px;
     padding: 20px;
   }}
+  .chart-card.full {{ grid-column: 1 / -1; }}
   .chart-card h2 {{
     font-size: 0.85rem;
     color: var(--muted);
@@ -555,7 +690,7 @@ def build_combined_html(payloads: list) -> str:
   <div class="header-top">
     <div>
       <h1>Options <span>Pipeline</span> Dashboard</h1>
-      <div class="subtitle">NIFTY &middot; BANKNIFTY &middot; SPY &mdash; Multi-Market Options Chain Analysis</div>
+      <div class="subtitle">NIFTY &middot; BANKNIFTY &middot; SPY &middot; Pre-2020 History &mdash; Multi-Market Analysis</div>
     </div>
     <div class="meta" id="metaBox"></div>
   </div>
@@ -567,12 +702,15 @@ def build_combined_html(payloads: list) -> str:
 <div id="dashboard"></div>
 
 <footer>
-  Generated by pattern_analysis.py &mdash; NSE Bhavcopy + Kite (India) &middot; SPY EOD Options (Kaggle)
+  Generated by pattern_analysis.py &mdash; NSE Bhavcopy + Kite (India) &middot; SPY EOD Options (Kaggle) &middot; Pre-2020 Intraday Archive
 </footer>
 
 <script>
 const PAYLOADS = {payload_json};
-const CURRENCY = {{"NIFTY": "\\u20b9", "BANKNIFTY": "\\u20b9", "SPY": "$"}};
+const CURRENCY = {{
+  "NIFTY": "\\u20b9", "BANKNIFTY": "\\u20b9", "SPY": "$",
+  "NIFTY (Pre-2020)": "\\u20b9", "BANKNIFTY (Pre-2020)": "\\u20b9"
+}};
 let currentIdx = 0;
 let charts = [];
 
@@ -606,6 +744,11 @@ function renderSymbol(idx) {{
 
   if (!p.has_data) {{
     dash.innerHTML = `<div class="no-data">No data available for ${{p.symbol}}. Run the relevant fetch script first.</div>`;
+    return;
+  }}
+
+  if (p.market === 'pre2020') {{
+    renderPre2020(p, dash);
     return;
   }}
 
@@ -753,6 +896,102 @@ function renderSymbol(idx) {{
   }}
 }}
 
+function renderPre2020(p, dash) {{
+  const volClass = (typeof p.kpi.vol === 'number' && p.kpi.vol > 25) ? 'red' : 'green';
+
+  dash.innerHTML = `
+    <div class="kpis kpis-3">
+      <div class="kpi">
+        <div class="label">${{p.symbol}} Spot Close</div>
+        <div class="value blue">${{fmtCurrency(p.symbol, p.kpi.spot)}}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Futures Basis</div>
+        <div class="value amber">${{fmtCurrency(p.symbol, p.kpi.basis)}}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">20D Realized Vol</div>
+        <div class="value ${{volClass}}">${{p.kpi.vol === "N/A" ? "N/A" : p.kpi.vol + "%"}}</div>
+      </div>
+    </div>
+
+    <div class="charts">
+      <div class="chart-card full">
+        <h2>Spot vs Futures Price</h2>
+        <canvas id="spotFutChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Futures Basis (Futures &minus; Spot)</h2>
+        <canvas id="basisChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>20-Day Realized Volatility (Annualized)</h2>
+        <canvas id="volChart"></canvas>
+      </div>
+    </div>
+  `;
+
+  const GRID = {{ color: 'rgba(48,54,61,0.8)' }};
+  const TICK = {{ color: '#8b949e', font: {{ size: 10 }} }};
+  const baseOpts = {{
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {{ legend: {{ display: false }}, tooltip: {{ mode: 'index', intersect: false }} }},
+    scales: {{
+      x: {{ grid: GRID, ticks: {{ ...TICK, maxTicksLimit: 8, maxRotation: 0 }} }},
+      y: {{ grid: GRID, ticks: TICK }}
+    }}
+  }};
+
+  // Merge spot/futures onto a shared date axis so the line chart aligns correctly
+  const dateSet = Array.from(new Set([...p.spot.map(d => d.x), ...p.futures.map(d => d.x)])).sort();
+  const spotMap = Object.fromEntries(p.spot.map(d => [d.x, d.y]));
+  const futMap  = Object.fromEntries(p.futures.map(d => [d.x, d.y]));
+
+  charts.push(new Chart(document.getElementById('spotFutChart'), {{
+    type: 'line',
+    data: {{
+      labels: dateSet,
+      datasets: [
+        {{ label: 'Spot', data: dateSet.map(x => spotMap[x] ?? null), borderColor: '#3fb950',
+           borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.2, spanGaps: true }},
+        {{ label: 'Futures', data: dateSet.map(x => futMap[x] ?? null), borderColor: '#58a6ff',
+           borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.2, spanGaps: true }}
+      ]
+    }},
+    options: {{
+      ...baseOpts,
+      plugins: {{ legend: {{ display: true, labels: {{ color: '#8b949e', font: {{ size: 11 }} }} }},
+                 tooltip: {{ mode: 'index', intersect: false }} }}
+    }}
+  }}));
+
+  charts.push(new Chart(document.getElementById('basisChart'), {{
+    type: 'line',
+    data: {{
+      labels: p.basis.map(d => d.x),
+      datasets: [{{ data: p.basis.map(d => d.y), borderColor: '#d29922',
+                   borderWidth: 1.5, pointRadius: 0, fill: true,
+                   backgroundColor: 'rgba(210,153,34,0.08)', tension: 0.2 }}]
+    }},
+    options: baseOpts
+  }}));
+
+  charts.push(new Chart(document.getElementById('volChart'), {{
+    type: 'line',
+    data: {{
+      labels: p.realized_vol.map(d => d.x),
+      datasets: [{{ data: p.realized_vol.map(d => d.y), borderColor: '#f85149',
+                   borderWidth: 1.5, pointRadius: 0, fill: true,
+                   backgroundColor: 'rgba(248,81,73,0.08)', tension: 0.2 }}]
+    }},
+    options: {{
+      ...baseOpts,
+      scales: {{ x: baseOpts.scales.x, y: {{ grid: GRID, ticks: {{ ...TICK, callback: v => v + '%' }} }} }}
+    }}
+  }}));
+}}
+
 // init
 selectTab(0);
 </script>
@@ -791,6 +1030,19 @@ def main():
     spy_payload = build_symbol_payload("SPY", spy_df, market="us")
     payloads.append(spy_payload)
     print("  Done with SPY.")
+
+    for symbol in ["NIFTY", "BANKNIFTY"]:
+        label = f"{symbol} (Pre-2020)"
+        print(f"Processing {label}...")
+        df = load_pre2020_data(symbol)
+        if df.empty:
+            print(f"  No pre-2020 data found for {symbol}.")
+        else:
+            print(f"  Loaded {len(df):,} daily bars | "
+                  f"{str(df['date'].min())[:10]} -> {str(df['date'].max())[:10]}")
+        payload = build_pre2020_payload(label, df)
+        payloads.append(payload)
+        print(f"  Done with {label}.")
 
     print("Building combined HTML...")
     html = build_combined_html(payloads)

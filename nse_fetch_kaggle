@@ -1,0 +1,218 @@
+"""
+nse_fetch_kaggle.py
+──────────────────────────────────────────────────────────────────────────────
+Loads NIFTY and BANKNIFTY options data from the Kaggle dataset
+(D:\archive2\nifty_data\nifty_options and banknifty_data\banknifty_options)
+into the nse_options table in options_data.db.
+
+Source: Daily intraday CSV files, one per trading day
+        symbol format: NIFTY02JAN2010100PE
+        We take the LAST row per symbol (EOD close at 15:30)
+
+Usage:
+    python nse_fetch_kaggle.py
+"""
+
+import os, re, sqlite3
+import pandas as pd
+from datetime import datetime
+
+# ── Config ────────────────────────────────────────────────────────────────────
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+DB_PATH    = os.path.join(BASE_DIR, "options_data.db")
+TABLE      = "nse_options"
+
+DATA_SOURCES = {
+    "NIFTY":     r"D:\archive2\nifty_data\nifty_options",
+    "BANKNIFTY": r"D:\archive2\banknifty_data\banknifty_options",
+}
+
+# ── DB setup ──────────────────────────────────────────────────────────────────
+def init_db(conn):
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {TABLE} (
+            date             TEXT,
+            symbol           TEXT,
+            expiry           TEXT,
+            strike           REAL,
+            option_type      TEXT,
+            open             REAL,
+            high             REAL,
+            low              REAL,
+            close            REAL,
+            last             REAL,
+            underlying_close REAL,
+            volume           REAL,
+            oi               REAL,
+            oi_change        REAL,
+            turnover         REAL,
+            PRIMARY KEY (date, symbol, expiry, strike, option_type)
+        )
+    """)
+    conn.commit()
+
+
+def already_fetched(conn, date_str, symbol):
+    r = conn.execute(
+        f"SELECT 1 FROM {TABLE} WHERE date=? AND symbol=? LIMIT 1",
+        (date_str, symbol)
+    ).fetchone()
+    return r is not None
+
+
+# ── Symbol parser ─────────────────────────────────────────────────────────────
+# e.g. NIFTY02JAN2010100PE -> expiry=2020-01-02, strike=10100, type=PE
+MONTH_MAP = {
+    "JAN":"01","FEB":"02","MAR":"03","APR":"04","MAY":"05","JUN":"06",
+    "JUL":"07","AUG":"08","SEP":"09","OCT":"10","NOV":"11","DEC":"12"
+}
+
+def parse_symbol(sym: str, instrument: str):
+    """Parse symbol like NIFTY02JAN2010100PE into (expiry, strike, option_type)."""
+    try:
+        # Remove instrument prefix
+        rest = sym[len(instrument):]  # e.g. 02JAN2010100PE
+
+        # Extract option type (last 2 chars)
+        option_type = rest[-2:]       # CE or PE
+        rest = rest[:-2]              # e.g. 02JAN2010100
+
+        # Extract day (first 2 chars)
+        day = rest[:2]
+        rest = rest[2:]               # e.g. JAN2010100
+
+        # Extract month (next 3 chars)
+        mon = rest[:3]
+        rest = rest[3:]               # e.g. 2010100
+
+        # Extract year (next 2 chars) and strike (remaining)
+        year = "20" + rest[:2]
+        strike = float(rest[2:])
+
+        month_num = MONTH_MAP.get(mon.upper())
+        if not month_num:
+            return None, None, None
+
+        expiry = f"{year}-{month_num}-{day.zfill(2)}"
+        return expiry, strike, option_type
+
+    except Exception:
+        return None, None, None
+
+
+# ── Process one CSV file ──────────────────────────────────────────────────────
+def process_file(fpath: str, instrument: str) -> list:
+    df = pd.read_csv(fpath, low_memory=False)
+
+    if df.empty:
+        return []
+
+    # Take last row per symbol (EOD)
+    eod = df.groupby("symbol").last().reset_index()
+
+    date_str = str(eod["date"].iloc[0])[:10]
+
+    rows = []
+    for _, row in eod.iterrows():
+        sym = str(row["symbol"])
+        expiry, strike, option_type = parse_symbol(sym, instrument)
+
+        if not expiry or not strike or option_type not in ("CE", "PE"):
+            continue
+
+        rows.append({
+            "date":             date_str,
+            "symbol":           instrument,
+            "expiry":           expiry,
+            "strike":           strike,
+            "option_type":      option_type,
+            "open":             float(row.get("open", 0) or 0),
+            "high":             float(row.get("high", 0) or 0),
+            "low":              float(row.get("low", 0) or 0),
+            "close":            float(row.get("close", 0) or 0),
+            "last":             float(row.get("close", 0) or 0),
+            "underlying_close": None,
+            "volume":           float(row.get("volume", 0) or 0),
+            "oi":               float(row.get("oi", 0) or 0),
+            "oi_change":        None,
+            "turnover":         None,
+        })
+
+    return rows
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+def main():
+    conn = sqlite3.connect(DB_PATH)
+    init_db(conn)
+
+    print("=" * 60)
+    total_saved = 0
+
+    for instrument, data_dir in DATA_SOURCES.items():
+        if not os.path.exists(data_dir):
+            print(f"{instrument}: folder not found at {data_dir}, skipping.")
+            continue
+
+        print(f"\nProcessing {instrument} from {data_dir}")
+
+        # Walk all year/month folders
+        all_files = []
+        for year in sorted(os.listdir(data_dir)):
+            year_path = os.path.join(data_dir, year)
+            if not os.path.isdir(year_path):
+                continue
+            for month in sorted(os.listdir(year_path), key=lambda x: int(x)):
+                month_path = os.path.join(year_path, month)
+                if not os.path.isdir(month_path):
+                    continue
+                for fname in sorted(os.listdir(month_path)):
+                    if fname.endswith(".csv"):
+                        all_files.append(os.path.join(month_path, fname))
+
+        print(f"  Found {len(all_files):,} CSV files")
+
+        for fpath in all_files:
+            # Extract date from filename e.g. nifty_options_01_01_2020.csv
+            fname = os.path.basename(fpath)
+            parts = fname.replace(".csv", "").split("_")
+            try:
+                day, month, year = parts[-3], parts[-2], parts[-1]
+                date_str = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            except Exception:
+                continue
+
+            if already_fetched(conn, date_str, instrument):
+                continue
+
+            rows = process_file(fpath, instrument)
+            if not rows:
+                continue
+
+            conn.executemany(f"""
+                INSERT OR IGNORE INTO {TABLE}
+                (date, symbol, expiry, strike, option_type, open, high, low,
+                 close, last, underlying_close, volume, oi, oi_change, turnover)
+                VALUES
+                (:date, :symbol, :expiry, :strike, :option_type, :open, :high,
+                 :low, :close, :last, :underlying_close, :volume, :oi,
+                 :oi_change, :turnover)
+            """, rows)
+            conn.commit()
+
+            total_saved += len(rows)
+            print(f"  {date_str}: saved {len(rows)} rows")
+
+    # Final stats
+    print("\n" + "=" * 60)
+    total = conn.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()[0]
+    rng   = conn.execute(
+        f"SELECT MIN(date), MAX(date) FROM {TABLE}"
+    ).fetchone()
+    print(f"Done. Total rows in nse_options : {total:,}")
+    print(f"Date range                      : {rng[0]} -> {rng[1]}")
+    conn.close()
+
+
+if __name__ == "__main__":
+    main()
