@@ -2,8 +2,9 @@
 pattern_analysis.py
 ──────────────────────────────────────────────────────────────────────────────
 Unified Options Chain Pattern Analysis Dashboard.
-Builds ONE index.html with tabs for NIFTY, BANKNIFTY, SPY, and the
-pre-2020 historical price tabs (NIFTY / BANKNIFTY, 2012-2019).
+Builds ONE index.html with tabs for NIFTY, BANKNIFTY, SPY, pre-2020 index
+options tabs, an aggregate All-Stocks (Pre-2020) view, and the pre-2020
+historical price tabs (NIFTY / BANKNIFTY, 2012-2019).
 
 NIFTY/BANKNIFTY  <- nse_options + options_chain (Kite)  in options_data.db
 SPY              <- sp500_options                        in sp500_data.db
@@ -29,12 +30,20 @@ RISK_FREE    = 0.07   # for India IV calc
 RISK_FREE_US = 0.045  # for SPY (unused, SPY IV pre-computed)
 PRE2020_LOOKBACK = 500  # pre-2020 history is daily bars, so allow a longer window
 
+# Symbols in nse_options that are NOT individual stocks (indices, global
+# products, sector baskets) — excluded from stock-level aggregation.
+EXCLUDE_NON_STOCKS = [
+    'NIFTY', 'BANKNIFTY', 'MINIFTY', 'NIFTYINFRA', 'NIFTYIT', 'NIFTYMID50',
+    'NIFTYPSE', 'NIFTYCPSE', 'NFTYMCAP50', 'CNXINFRA', 'CNXIT', 'CNXPSE',
+    'FTSE100', 'S&P500'
+]
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SECTION 1 — INDIA (NIFTY / BANKNIFTY) DATA LOADING
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _load_table(conn, table, instrument):
+def _load_table(conn, table, instrument, date_start=None, date_end=None):
     """Generic loader for an India options table. Returns standard-schema df."""
     try:
         cols_raw = conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -68,6 +77,15 @@ def _load_table(conn, table, instrument):
     if missing:
         return pd.DataFrame()
 
+    where_clauses = [f"{sym_col} = ?", f"{price_col} > 0", f"{otype_col} IN ('CE','PE')"]
+    params = [instrument]
+    if date_start:
+        where_clauses.append(f"{date_col} >= ?")
+        params.append(date_start)
+    if date_end:
+        where_clauses.append(f"{date_col} < ?")
+        params.append(date_end)
+
     query = f"""
         SELECT
             {sym_col}    AS symbol,
@@ -80,19 +98,19 @@ def _load_table(conn, table, instrument):
             CAST({oi_col} AS REAL)    AS open_interest
             {', CAST(' + vol_col + ' AS REAL) AS volume' if vol_col else ''}
         FROM {table}
-        WHERE {sym_col} = ? AND {price_col} > 0
+        WHERE {' AND '.join(where_clauses)}
     """
-    df = pd.read_sql(query, conn, params=(instrument,))
+    df = pd.read_sql(query, conn, params=params)
     return df
 
 
-def load_india_data(instrument: str) -> pd.DataFrame:
+def load_india_data(instrument: str, date_start=None, date_end=None) -> pd.DataFrame:
     if not os.path.exists(INDIA_DB):
         return pd.DataFrame()
     conn = sqlite3.connect(INDIA_DB)
 
-    nse = _load_table(conn, "nse_options", instrument)
-    kite = _load_table(conn, "options_chain", instrument)
+    nse = _load_table(conn, "nse_options", instrument, date_start=date_start, date_end=date_end)
+    kite = _load_table(conn, "options_chain", instrument, date_start=date_start, date_end=date_end)
 
     if not nse.empty and not kite.empty:
         existing_dates = set(nse["date"].unique())
@@ -182,6 +200,82 @@ def compute_pre2020_metrics(df: pd.DataFrame) -> pd.DataFrame:
     log_ret = np.log(spot / spot.shift(1))
     df["realized_vol_20d"] = log_ret.rolling(20).std() * np.sqrt(252) * 100
     return df
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 1C — AGGREGATE ALL-STOCKS PRE-2020 VIEW (SQL-side, fast at scale)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def load_all_stocks_pcr(date_start, date_end, exclude=EXCLUDE_NON_STOCKS):
+    """Computes a single combined OI-weighted PCR curve across every
+    individual stock (excludes indices/global products), aggregated in
+    SQL rather than Python loops so it stays fast even at tens of millions
+    of rows."""
+    conn = sqlite3.connect(INDIA_DB)
+    placeholders = ','.join('?' for _ in exclude)
+    query = f"""
+        SELECT date,
+               SUM(CASE WHEN option_type='CE' THEN oi ELSE 0 END) as total_ce_oi,
+               SUM(CASE WHEN option_type='PE' THEN oi ELSE 0 END) as total_pe_oi
+        FROM nse_options
+        WHERE date >= ? AND date < ? AND option_type IN ('CE','PE')
+              AND symbol NOT IN ({placeholders})
+        GROUP BY date
+        ORDER BY date;
+    """
+    params = [date_start, date_end] + exclude
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    if df.empty:
+        return df
+    df['pcr'] = df.apply(
+        lambda r: round(r['total_pe_oi'] / r['total_ce_oi'], 4) if r['total_ce_oi'] > 0 else None,
+        axis=1
+    )
+    return df
+
+
+def load_stock_coverage(date_end, exclude=EXCLUDE_NON_STOCKS):
+    """Per-stock row count and date range, for the coverage table."""
+    conn = sqlite3.connect(INDIA_DB)
+    placeholders = ','.join('?' for _ in exclude)
+    query = f"""
+        SELECT symbol, COUNT(*) as row_count, MIN(date) as min_date, MAX(date) as max_date
+        FROM nse_options
+        WHERE date < ? AND option_type IN ('CE','PE')
+              AND symbol NOT IN ({placeholders})
+        GROUP BY symbol
+        ORDER BY row_count DESC;
+    """
+    df = pd.read_sql(query, conn, params=[date_end] + exclude)
+    conn.close()
+    return df
+
+
+def build_all_stocks_payload(pcr_df: pd.DataFrame, coverage_df: pd.DataFrame) -> dict:
+    if pcr_df.empty:
+        return {"symbol": "All Stocks (Pre-2020)", "market": "all_stocks", "has_data": False,
+                "pcr": [], "coverage": [], "kpi": {}, "date_range": "N/A", "row_count": 0}
+
+    pcr_data = [{"x": str(r["date"])[:10], "y": r["pcr"]}
+                for _, r in pcr_df.iterrows() if r["pcr"] is not None]
+
+    coverage_data = [{"symbol": r["symbol"], "rows": int(r["row_count"]),
+                       "range": f"{str(r['min_date'])[:10]} to {str(r['max_date'])[:10]}"}
+                      for _, r in coverage_df.iterrows()]
+
+    latest_pcr = pcr_data[-1]["y"] if pcr_data else None
+
+    return {
+        "symbol": "All Stocks (Pre-2020)", "market": "all_stocks", "has_data": True,
+        "pcr": pcr_data, "coverage": coverage_data,
+        "kpi": {
+            "total_stocks": len(coverage_data),
+            "latest_pcr": safe_round(latest_pcr) if latest_pcr is not None else "N/A"
+        },
+        "date_range": f"{str(pcr_df['date'].min())[:10]} \u2192 {str(pcr_df['date'].max())[:10]}",
+        "row_count": int(coverage_df["row_count"].sum()) if not coverage_df.empty else 0
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -425,8 +519,9 @@ def safe_round(v, n=2):
     return round(float(v), n)
 
 
-def build_symbol_payload(symbol: str, df: pd.DataFrame, market: str) -> dict:
+def build_symbol_payload(symbol: str, df: pd.DataFrame, market: str, lookback: int = None) -> dict:
     """market = 'india' or 'us' — controls which compute fns are used."""
+    lookback = lookback or LOOKBACK
 
     if df.empty:
         return {
@@ -446,19 +541,19 @@ def build_symbol_payload(symbol: str, df: pd.DataFrame, market: str) -> dict:
     # Only compute Max Pain over the lookback window — the chart discards
     # everything older anyway, so restrict the expensive loop up front.
     _all_dates = sorted(df["date"].unique())
-    _recent_dates = set(_all_dates[-LOOKBACK:])
+    _recent_dates = set(_all_dates[-lookback:])
     mp_input = df[df["date"].isin(_recent_dates)]
     mp_df  = compute_max_pain(mp_input, weight_col=weight_col)
 
     if market == "india":
-        iv_df = compute_iv_surface_india(df, max_dates=LOOKBACK)
+        iv_df = compute_iv_surface_india(df, max_dates=lookback)
         ce_oi, pe_oi, snap_date = compute_oi_buildup(df)
     else:
-        iv_df = compute_iv_surface_spy(df, max_dates=LOOKBACK)
+        iv_df = compute_iv_surface_spy(df, max_dates=lookback)
         ce_oi, pe_oi, snap_date = pd.DataFrame(), pd.DataFrame(), df["date"].max()
 
     all_dates = sorted(df["date"].unique())
-    recent = all_dates[-LOOKBACK:]
+    recent = all_dates[-lookback:]
 
     pcr_near = pcr_df[pcr_df["date"].isin(recent)]
     pcr_data = [{"x": str(r["date"])[:10], "y": r["pcr"]}
@@ -583,7 +678,9 @@ def build_pre2020_payload(symbol: str, df: pd.DataFrame) -> dict:
 CURRENCY = {"NIFTY": "\u20b9", "BANKNIFTY": "\u20b9", "SPY": "$"}
 
 def build_combined_html(payloads: list) -> str:
-    payload_json = json.dumps(payloads)
+    # default=str handles any stray pandas Timestamp/NaT/numpy objects that
+    # slip through (e.g. from sparse pre-2020 data) instead of crashing.
+    payload_json = json.dumps(payloads, default=str)
 
     tabs_html = "".join(
         f'<button class="tab" data-idx="{i}" onclick="selectTab({i})">{p["symbol"]}</button>'
@@ -671,6 +768,10 @@ def build_combined_html(payloads: list) -> str:
   }}
   canvas {{ width: 100% !important; height: 220px !important; }}
 
+  table {{ width: 100%; border-collapse: collapse; font-size: 0.85rem; }}
+  table th, table td {{ padding: 6px 10px; border-bottom: 1px solid var(--border); }}
+  table thead th {{ position: sticky; top: 0; background: var(--surface); }}
+
   .no-data {{
     text-align: center; padding: 60px 20px; color: var(--muted); font-size: 0.9rem;
   }}
@@ -709,7 +810,8 @@ def build_combined_html(payloads: list) -> str:
 const PAYLOADS = {payload_json};
 const CURRENCY = {{
   "NIFTY": "\\u20b9", "BANKNIFTY": "\\u20b9", "SPY": "$",
-  "NIFTY (Pre-2020)": "\\u20b9", "BANKNIFTY (Pre-2020)": "\\u20b9"
+  "NIFTY (Pre-2020)": "\\u20b9", "BANKNIFTY (Pre-2020)": "\\u20b9",
+  "NIFTY Options (Pre-2020)": "\\u20b9", "BANKNIFTY Options (Pre-2020)": "\\u20b9"
 }};
 let currentIdx = 0;
 let charts = [];
@@ -749,6 +851,11 @@ function renderSymbol(idx) {{
 
   if (p.market === 'pre2020') {{
     renderPre2020(p, dash);
+    return;
+  }}
+
+  if (p.market === 'all_stocks') {{
+    renderAllStocks(p, dash);
     return;
   }}
 
@@ -992,6 +1099,71 @@ function renderPre2020(p, dash) {{
   }}));
 }}
 
+function renderAllStocks(p, dash) {{
+  const rows = p.coverage.map(c =>
+    `<tr><td>${{c.symbol}}</td><td style="text-align:right">${{c.rows.toLocaleString()}}</td><td>${{c.range}}</td></tr>`
+  ).join('');
+
+  const pcrClass = (typeof p.kpi.latest_pcr === 'number' && p.kpi.latest_pcr < 1) ? 'green' : 'red';
+
+  dash.innerHTML = `
+    <div class="kpis kpis-3">
+      <div class="kpi">
+        <div class="label">Total Stocks Covered</div>
+        <div class="value blue">${{p.kpi.total_stocks}}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Latest Combined PCR</div>
+        <div class="value ${{pcrClass}}">${{p.kpi.latest_pcr}}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Total Rows</div>
+        <div class="value amber">${{p.row_count.toLocaleString()}}</div>
+      </div>
+    </div>
+    <div class="charts">
+      <div class="chart-card full">
+        <h2>Combined Put/Call Ratio (All Stocks, OI-weighted)</h2>
+        <canvas id="allPcrChart"></canvas>
+      </div>
+      <div class="chart-card full">
+        <h2>Stock Coverage</h2>
+        <div style="max-height:400px; overflow-y:auto;">
+          <table>
+            <thead><tr style="color:var(--muted); text-align:left;">
+              <th>Symbol</th><th style="text-align:right">Rows</th><th>Date Range</th>
+            </tr></thead>
+            <tbody>${{rows}}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const GRID = {{ color: 'rgba(48,54,61,0.8)' }};
+  const TICK = {{ color: '#8b949e', font: {{ size: 10 }} }};
+  charts.push(new Chart(document.getElementById('allPcrChart'), {{
+    type: 'line',
+    data: {{
+      labels: p.pcr.map(d => d.x),
+      datasets: [
+        {{ data: p.pcr.map(d => d.y), borderColor: '#58a6ff', borderWidth: 1.5,
+           pointRadius: 0, fill: false, tension: 0.2 }},
+        {{ data: p.pcr.map(() => 1.0), borderColor: 'rgba(248,81,73,0.4)', borderWidth: 1,
+           borderDash: [4,4], pointRadius: 0, fill: false }}
+      ]
+    }},
+    options: {{
+      responsive: true, maintainAspectRatio: false,
+      plugins: {{ legend: {{ display: false }} }},
+      scales: {{
+        x: {{ grid: GRID, ticks: {{ ...TICK, maxTicksLimit: 10, maxRotation: 0 }} }},
+        y: {{ grid: GRID, ticks: TICK }}
+      }}
+    }}
+  }}));
+}}
+
 // init
 selectTab(0);
 </script>
@@ -1010,7 +1182,7 @@ def main():
     print("=" * 60)
     for symbol in ["NIFTY", "BANKNIFTY"]:
         print(f"Processing {symbol}...")
-        df = load_india_data(symbol)
+        df = load_india_data(symbol, date_start="2020-01-01")
         if df.empty:
             print(f"  No data found for {symbol}.")
         else:
@@ -1019,6 +1191,28 @@ def main():
         payload = build_symbol_payload(symbol, df, market="india")
         payloads.append(payload)
         print(f"  Done with {symbol}.")
+
+    # ── Pre-2020 index options tabs (NIFTY/BANKNIFTY, full 2012-2019 range) ──
+    for symbol in ["NIFTY", "BANKNIFTY"]:
+        label = f"{symbol} Options (Pre-2020)"
+        print(f"Processing {label}...")
+        df = load_india_data(symbol, date_end="2020-01-01")
+        if df.empty:
+            print(f"  No pre-2020 options data found for {symbol}.")
+        else:
+            print(f"  Loaded {len(df):,} rows | "
+                  f"{str(df['date'].min())[:10]} -> {str(df['date'].max())[:10]}")
+        payload = build_symbol_payload(label, df, market="india", lookback=2100)
+        payloads.append(payload)
+        print(f"  Done with {label}.")
+
+    # ── Aggregate All-Stocks (Pre-2020) view: combined PCR + coverage table ──
+    print("Building combined All-Stocks (Pre-2020) view...")
+    pcr_df = load_all_stocks_pcr("2012-01-01", "2020-01-01")
+    coverage_df = load_stock_coverage("2020-01-01")
+    all_stocks_payload = build_all_stocks_payload(pcr_df, coverage_df)
+    payloads.append(all_stocks_payload)
+    print(f"  {len(coverage_df)} stocks, {len(pcr_df)} days of PCR data")
 
     print(f"Processing SPY...")
     spy_df = load_spy_data()
