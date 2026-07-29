@@ -1,32 +1,23 @@
 import pandas as pd
+import zipfile, os
 
-files = [
-    r"D:\iisc\project\option data\us_underlying_close_lookup.csv",
-    r"D:\iisc\project\option data\us_underlying_close_lookup_retry2.csv",
-    r"D:\iisc\project\option data\us_underlying_close_lookup_retry5.csv",
-]
+# Full expected ticker list from the zip snapshots
+CACHE_DIR = r"D:\iisc\project\option data\option_chain_cache"
+all_tickers = set()
+for fname in sorted(os.listdir(CACHE_DIR)):
+    if not fname.endswith(".zip"):
+        continue
+    with zipfile.ZipFile(os.path.join(CACHE_DIR, fname), 'r') as z:
+        for n in z.namelist():
+            if n.endswith(".json"):
+                all_tickers.add(os.path.basename(n).replace(".json", ""))
 
-dfs = []
-for f in files:
-    try:
-        df = pd.read_csv(f)
-        print(f"{f}: {len(df)} rows, {df['ticker'].nunique()} tickers")
-        dfs.append(df)
-    except FileNotFoundError:
-        print(f"{f}: NOT FOUND, skipping")
+master = pd.read_csv(r"D:\iisc\project\option data\us_underlying_close_MASTER.csv")
+covered = set(master['ticker'].unique())
 
-combined = pd.concat(dfs, ignore_index=True)
+missing = sorted(all_tickers - covered)
 
-# BF-B / BRK-B were fetched with hyphens; normalize back to match your JSON filenames (BF.B / BRK.B)
-combined['ticker'] = combined['ticker'].replace({'BF-B': 'BF.B', 'BRK-B': 'BRK.B'})
-
-# Remove any duplicate (ticker, date) pairs, keeping the first occurrence
-before = len(combined)
-combined = combined.drop_duplicates(subset=['ticker', 'date'], keep='first')
-after = len(combined)
-print(f"\nDropped {before - after} duplicate rows")
-
-combined.to_csv(r"D:\iisc\project\option data\us_underlying_close_MASTER.csv", index=False)
-
-print(f"\nFinal master file: {len(combined)} rows, {combined['ticker'].nunique()} unique tickers")
-print(f"Date range: {combined['date'].min()} to {combined['date'].max()}")
+print(f"Total expected tickers: {len(all_tickers)}")
+print(f"Covered in master: {len(covered)}")
+print(f"Still missing: {len(missing)}")
+print(missing)
